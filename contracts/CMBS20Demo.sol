@@ -112,42 +112,50 @@ contract CMBS20Demo is AccessControl, Pausable {
         }
     }
 
-    // ------------------------------------------------------
-    //  WATERFALL DISTRIBUTION
-    // ------------------------------------------------------
+// WATERFALL DISTRIBUTION - new VERSION 07/20
 
-    function depositAndDistribute(uint256 amount)
-        external
-        whenNotPaused
-        onlyRole(SERVICER_ROLE)
-    {
-        require(stable.transferFrom(msg.sender, address(this), amount), "TRANSFER_FAILED");
-        _accrueAllInterest();
+function depositAndDistribute(uint256 amount)
+    external
+    whenNotPaused
+    onlyRole(SERVICER_ROLE)
+{
+    require(stable.transferFrom(msg.sender, address(this), amount), "TRANSFER_FAILED");
+    _accrueAllInterest();
 
-        uint256 remaining = amount;
+    uint256 remaining = amount;
 
-        for (uint8 s = 0; s < 255 && remaining > 0; ++s) {
-            for (uint256 id = 0; id < nextTrancheId && remaining > 0; ++id) {
-                Tranche storage t = tranches[id];
-                if (t.seniority != s) continue;
+    // PHASE 1: Pay interest to ALL tranches (by seniority)
+    for (uint8 s = 0; s < 255 && remaining > 0; ++s) {
+        for (uint256 id = 0; id < nextTrancheId && remaining > 0; ++id) {
+            Tranche storage t = tranches[id];
+            if (t.seniority != s) continue;
 
-                uint256 payInt = t.accruedInterest <= remaining ? t.accruedInterest : remaining;
-                t.accruedInterest -= payInt;
-                t.cashAvailable  += payInt;
-                remaining        -= payInt;
+            uint256 payInt = t.accruedInterest <= remaining ? t.accruedInterest : remaining;
+            t.accruedInterest -= payInt;
+            t.cashAvailable  += payInt;
+            remaining        -= payInt;
 
-                uint256 payPrin = t.principal <= remaining ? t.principal : remaining;
-                t.principal     -= payPrin;
-                t.cashAvailable += payPrin;
-                remaining       -= payPrin;
-
-                emit PaymentAllocated(id, payInt, payPrin);
-            }
+            emit PaymentAllocated(id, payInt, 0); // interest only
         }
-
-        emit PaymentAllocated(type(uint256).max, 0, remaining); // excess spread
     }
 
+    // PHASE 2: Pay principal (by seniority)
+    for (uint8 s = 0; s < 255 && remaining > 0; ++s) {
+        for (uint256 id = 0; id < nextTrancheId && remaining > 0; ++id) {
+            Tranche storage t = tranches[id];
+            if (t.seniority != s) continue;
+
+            uint256 payPrin = t.principal <= remaining ? t.principal : remaining;
+            t.principal     -= payPrin;
+            t.cashAvailable += payPrin;
+            remaining       -= payPrin;
+
+            emit PaymentAllocated(id, 0, payPrin); // principal only
+        }
+    }
+
+    emit PaymentAllocated(type(uint256).max, 0, remaining); // excess spread
+}
     // ------------------------------------------------------
     //  WITHDRAWALS
     // ------------------------------------------------------
